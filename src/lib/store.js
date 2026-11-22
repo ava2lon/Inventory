@@ -105,6 +105,7 @@ import {
 } from './lots.js';
 import { normalizeUnit, roundQty } from './units.js';
 import { deletePhoto } from './photos.js';
+import { supabase } from './supabase.js';
 import {
   UNASSIGNED, UNASSIGNED_LABEL, migrateProduct, stockEntries,
   stockAt, totalStock, withStockAt, defaultLocationId, minMap, binMap,
@@ -247,7 +248,7 @@ class Store extends EventTarget {
       this.#persistence.read(KV.takeout),
       this.#persistence.read(KV.snapshots),
       this.#persistence.read(KV.backups),
-      puter.auth.getUser().catch(() => null),
+      supabase.auth.getUser().then(({ data, error }) => { if (error) throw error; return data.user; }),
     ]);
     this.settings = { ...DEFAULT_SETTINGS, ...(settings || {}) };
     this.products = Array.isArray(products) ? products.map(migrateProduct) : [];

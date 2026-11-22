@@ -1,50 +1,29 @@
-/**
- * Product photos, stored in the user's own Puter drive.
- *
- * The product record keeps only a path, so `inv:products:v2` stays a
- * small, fast KV value. Pictures are downscaled and re-encoded to WebP
- * in the browser before upload — an 8 MP phone photo becomes tens of
- * kilobytes, which is what makes thumbnails in a list viable at all.
- *
- * Every call here is best-effort: a photo is a convenience, and no
- * failure to read, write, or delete one may block the actual inventory
- * work. Callers get null and carry on.
- */
+import { supabase, requireUser } from './supabase.js';
 
-const DIR = 'inventory/images';
-
-/** The Puter filesystem, or null when it isn't available. */
-const fs = () => (typeof puter !== 'undefined' && puter?.fs ? puter.fs : null);
-
-export const photosSupported = () => !!fs();
-
-/* Product ids normally come from uid(), but a restored backup keeps
-   whatever ids the file held — and the id becomes a drive path here.
-   Filtering it to a plain file stem keeps a crafted id ("../…") from
-   steering the write outside the images directory. */
-const safeStem = (id) => String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
-
-export const photoPath = (productId) => `${DIR}/${safeStem(productId)}.webp`;
-
-/**
- * Only paths this module could have written. `imagePath` is stored on
- * the product, so a hand-made backup can point it anywhere; deleting
- * (or reading) whatever it names would let that file reach the rest of
- * the drive.
- */
-const ownPath = (path) => typeof path === 'string' && path.startsWith(`${DIR}/`) && !path.includes('..');
-
-/* Object URLs by path, so a list re-render doesn't re-read the drive.
-   Entries live as long as the tab does; the whole cache is at most one
-   URL per product with a photo. */
+const BUCKET = 'inv-product-images';
+const MAX_BYTES = 5 * 1024 * 1024;
+const SIGNED_URL_TTL = 60 * 60;
+const URL_REFRESH_MARGIN = 5 * 60;
 const urls = new Map();
 const inflight = new Map();
 
-/**
- * Shrink an image to fit `max` on its longest side and re-encode it.
- * Falls back to JPEG where WebP encoding isn't available, and to the
- * original file if the canvas route fails entirely.
- */
+const safeStem = (id) => String(id).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
+const validPath = (path, userId) => {
+  if (typeof path !== 'string' || path.includes('..')) return false;
+  const parts = path.split('/');
+  return parts.length === 3 && parts[0] === userId
+    && /^[a-zA-Z0-9_-]{1,100}$/.test(parts[1])
+    && /^photo\.(webp|jpe?g|png)$/i.test(parts[2]);
+};
+
+export const photosSupported = () => !!supabase?.storage;
+
+export function photoPath(productId, userId, mime = 'image/webp') {
+  if (!userId) return null;
+  const ext = mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : 'webp';
+  return `${userId}/${safeStem(productId)}/photo.${ext}`;
+}
+
 export async function downscale(file, { max = 800, quality = 0.82 } = {}) {
   try {
     const bitmap = await createImageBitmap(file);
@@ -55,24 +34,34 @@ export async function downscale(file, { max = 800, quality = 0.82 } = {}) {
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Image canvas is unavailable.');
     ctx.drawImage(bitmap, 0, 0, width, height);
     bitmap.close?.();
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', quality))
-      || await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
-    return blob || file;
+    const webp = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', quality));
+    if (webp?.type === 'image/webp') return webp;
+    const jpeg = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+    if (jpeg?.type === 'image/jpeg') return jpeg;
+    throw new Error('This browser cannot encode product photos.');
   } catch (err) {
-    console.error('Downscaling failed; uploading the original', err);
-    return file;
+    console.error('Downscaling failed', err);
+    if (['image/webp', 'image/jpeg', 'image/png'].includes(file?.type) && file.size <= MAX_BYTES) return file;
+    throw new Error('Could not prepare this image. Choose a JPG, PNG or WebP image under 5 MB.');
   }
 }
 
-/** Write a product's photo. Returns its path, or null if it couldn't be saved. */
 export async function savePhoto(productId, blob) {
-  const drive = fs();
-  if (!drive || !blob) return null;
-  const path = photoPath(productId);
+  if (!blob) return null;
   try {
-    await drive.write(path, blob, { overwrite: true, createMissingParents: true });
+    const user = await requireUser();
+    const mime = blob.type || 'application/octet-stream';
+    if (!['image/webp', 'image/jpeg', 'image/png'].includes(mime) || blob.size > MAX_BYTES) {
+      throw new Error('Product photos must be WebP, JPEG or PNG and no larger than 5 MB.');
+    }
+    const path = photoPath(productId, user.id, mime);
+    const { error } = await supabase.storage.from(BUCKET).upload(path, blob, {
+      upsert: true, contentType: mime, cacheControl: '3600',
+    });
+    if (error) throw error;
     forget(path);
     return path;
   } catch (err) {
@@ -81,53 +70,55 @@ export async function savePhoto(productId, blob) {
   }
 }
 
-/** A displayable URL for a product's photo, or null. Cached per path. */
 export async function photoURL(product) {
   const path = product?.imagePath;
-  const drive = fs();
-  if (!path || !drive || !ownPath(path)) return null;
-  if (urls.has(path)) return urls.get(path);
-  if (inflight.has(path)) return inflight.get(path).promise;
-
-  const request = {};
-  inflight.set(path, request);
-  request.promise = (async () => {
-    try {
-      const blob = await drive.read(path);
-      if (inflight.get(path) !== request) return urls.get(path) || null;
-      const url = URL.createObjectURL(blob);
-      urls.set(path, url);
-      return url;
-    } catch {
-      // A missing file is normal after a restore between accounts; the
-      // null is cached so a long list doesn't retry it per render.
-      if (inflight.get(path) === request) urls.set(path, null);
-      return null;
-    } finally {
-      if (inflight.get(path) === request) inflight.delete(path);
-    }
-  })();
-  return request.promise;
+  if (!path) return null;
+  try {
+    const user = await requireUser();
+    if (!validPath(path, user.id)) return null;
+    const cached = urls.get(path);
+    if (cached && cached.expiresAt > Date.now() + URL_REFRESH_MARGIN) return cached.url;
+    if (inflight.has(path)) return inflight.get(path);
+    const request = (async () => {
+      try {
+        const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, SIGNED_URL_TTL);
+        if (error) throw error;
+        const url = data?.signedUrl || null;
+        if (url) urls.set(path, { url, expiresAt: Date.now() + SIGNED_URL_TTL * 1000 });
+        return url;
+      } catch (err) {
+        console.error('Loading the photo failed', err);
+        return null;
+      } finally {
+        inflight.delete(path);
+      }
+    })();
+    inflight.set(path, request);
+    return request;
+  } catch {
+    return null;
+  }
 }
 
-/** The URL if it's already loaded, without starting a read. */
-export const cachedPhotoURL = (product) => urls.get(product?.imagePath) || null;
+export const cachedPhotoURL = (product) => {
+  const cached = urls.get(product?.imagePath);
+  return cached && cached.expiresAt > Date.now() + URL_REFRESH_MARGIN ? cached.url : null;
+};
 
 function forget(path) {
   inflight.delete(path);
-  const url = urls.get(path);
-  if (url) URL.revokeObjectURL(url);
   urls.delete(path);
 }
 
-/** Remove a product's photo from the drive. Silent on failure. */
 export async function deletePhoto(product) {
   const path = product?.imagePath;
-  const drive = fs();
-  if (!path || !drive || !ownPath(path)) return;
-  forget(path);
+  if (!path) return;
   try {
-    await drive.delete(path);
+    const user = await requireUser();
+    if (!validPath(path, user.id)) return;
+    forget(path);
+    const { error } = await supabase.storage.from(BUCKET).remove([path]);
+    if (error) throw error;
   } catch (err) {
     console.error('Deleting the photo failed', err);
   }
