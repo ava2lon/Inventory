@@ -1,3 +1,6 @@
+import { cloudKV } from './cloud-provider.js';
+const puter = { kv: cloudKV };
+
 /**
  * The store's gate to Puter KV, made offline-tolerant:
  *

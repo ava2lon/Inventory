@@ -1,7 +1,7 @@
 {
   "name": "inventory-management",
   "version": "1.0.0",
-  "description": "Inventory management on Puter: products, quantities, locations, purchase cost, low-stock alerts, suppliers, and CSV import/export",
+  "description": "Inventory management with Supabase: products, quantities, locations, purchase cost, low-stock alerts, suppliers, and CSV import/export",
   "type": "module",
   "private": true,
   "scripts": {
@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@supabase/supabase-js": "2.119.2",
     "lucide": "^1.28.0"
   },
   "devDependencies": {

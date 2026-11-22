@@ -3,16 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Inventory | Free Stock Management by Puter</title>
-  <meta name="description" content="Know what you have, where it is, and what to reorder. Free inventory management with stock by location, barcode scanning, supplier orders, and reports." />
+  <title>Inventory | Stock in sight. Work in hand.</title>
+  <meta name="description" content="Know what you have, where it is, and what to reorder. Products, quantities, locations, suppliers, and stock changes in one workspace." />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Inventory | Stock in sight. Work in hand." />
-  <meta property="og:description" content="Free inventory management with stock by location, barcode scanning, supplier orders, and reports. Powered by Puter." />
+  <meta property="og:description" content="Inventory management with stock by location, barcode scanning, supplier orders, and reports." />
   <meta property="og:site_name" content="Inventory" />
   <meta name="twitter:card" content="summary" />
-  <meta name="twitter:title" content="Inventory | Stock in sight. Work in hand." />
-  <meta name="twitter:description" content="Know what you have, where it is, and what to reorder. Free inventory management by Puter." />
-  <!-- public-metadata -->
   <meta name="theme-color" content="#f8f9fa" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#0e0f11" media="(prefers-color-scheme: dark)" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -24,29 +21,10 @@
   <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
   <link rel="manifest" href="./manifest.json" />
-  <!-- Privacy-friendly analytics by Plausible -->
-  <script async src="https://plausible.io/js/pa-2yMvoQPYNHnCQ4VVrJlNU.js"></script>
   <script>
-    window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
-    plausible.init()
+    (() => { try { const t = localStorage.getItem('inventory:theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {} })();
   </script>
-  <script>
-    // Apply saved theme before first paint to avoid a flash.
-    (() => {
-      try {
-        const t = localStorage.getItem('inventory:theme');
-        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
-      } catch {}
-    })();
-  </script>
-  <!-- defer keeps the SDK ahead of the module script below (same in-order
-       queue) without parser-blocking first paint of the boot splash. -->
-  <script src="https://js.puter.com/v2/" defer></script>
   <script type="module" src="/src/main.js"></script>
 </head>
-<body>
-  <div id="app" class="app">
-    <!-- public-landing -->
-  </div>
-</body>
+<body><div id="app" class="app"><!-- public-landing --></div></body>
 </html>
