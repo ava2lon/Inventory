@@ -12,6 +12,7 @@ import { productsToCSV } from '../lib/csv.js';
 import { buildBackup, backupFilename, validateBackup, describeBackup } from '../lib/backup.js';
 import { downloadFile, formatQty, dateStamp, timeAgo } from '../lib/util.js';
 import { DEFAULT_SAFETY_DAYS } from '../lib/demand.js';
+import { supabase } from '../lib/supabase.js';
 
 const THEMES = [
   { key: 'system', label: 'System', icon: 'monitor' },
@@ -60,14 +61,15 @@ export async function confirmSignOut() {
     title: 'Sign out?',
     message: unsynced
       ? `${unsynced} change${unsynced === 1 ? ' hasn’t' : 's haven’t'} synced to your Puter account yet and will be lost if you sign out now. Everything already synced stays safe.`
-      : 'Your inventory stays safe in your Puter account and will be here when you sign back in.',
+      : 'Your inventory stays safe in your account and will be here when you sign back in.',
     confirmLabel: 'Sign out',
     danger: unsynced > 0,
   });
   if (!ok) return;
   // Let sign-out finish before reloading, or the reload can cut off the
   // session teardown and come back still signed in.
-  try { await puter.auth.signOut(); } catch {}
+  const { error } = await supabase.auth.signOut();
+  if (error) { toast('Could not sign out. Try again.'); return; }
   // The mirror and queue hold this account's data; the next person on
   // this browser must not browse it or replay it into their account.
   await releaseAccount().catch(() => {});
