@@ -710,6 +710,11 @@ export function openProductForm(product = null, { onSaved, prefill = null } = {}
         photoBlob = blob;
         photoCleared = false;
         showPreview(URL.createObjectURL(blob), { owned: true });
+      }).catch((err) => {
+        if (photoPending !== pending) return;
+        photoPending = null;
+        console.error('Preparing the product photo failed', err);
+        toast('Couldn’t prepare that photo. Choose a JPG, PNG or WebP under 5 MB.', { icon: 'circleAlert' });
       });
       photoPending = pending;
     },
